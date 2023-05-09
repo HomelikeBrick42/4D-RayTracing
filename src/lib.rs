@@ -272,10 +272,6 @@ impl eframe::App for App {
                     ui.add(egui::DragValue::new(&mut self.camera.max_distance).speed(0.01));
                 });
                 self.camera.max_distance = self.camera.max_distance.max(self.camera.min_distance);
-                ui.horizontal(|ui| {
-                    ui.label("Fov: ");
-                    ui.drag_angle(&mut self.camera.fov);
-                });
                 ui.add_enabled_ui(false, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Forward: ");

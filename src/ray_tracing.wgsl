@@ -52,27 +52,31 @@ fn intersect_hyper_sphere(ray: Ray, hyper_sphere: HyperSphere) -> Hit {
     let c = dot(oc, oc) - hyper_sphere.radius * hyper_sphere.radius;
     let discriminant = half_b * half_b - a * c;
 
-    if discriminant >= 0.0 {
-        hit.hit = true;
-
-        let sqrt_discriminant = sqrt(discriminant);
-        let t0 = (-half_b - sqrt_discriminant) / a;
-        let t1 = (-half_b + sqrt_discriminant) / a;
-
-        // TODO: take into account the min/max camera distance
-        if t0 > 0.0 {
-            hit.distance = t0;
-        } else {
-            hit.distance = t1;
-        }
-
-        hit.position = ray.origin + ray.direction * hit.distance;
-        hit.normal = normalize(hit.position - hyper_sphere.center);
-        if dot(hit.normal, ray.origin - hit.position) < 0.0 {
-            hit.normal *= -1.0;
-        }
+    if discriminant < 0.0 {
+        return hit;
     }
 
+    let sqrt_discriminant = sqrt(discriminant);
+    let t0 = (-half_b - sqrt_discriminant) / a;
+    let t1 = (-half_b + sqrt_discriminant) / a;
+
+    if max(t0, t1) < camera.min_distance || camera.max_distance < min(t0, t1) {
+        return hit;
+    }
+
+    if t0 > camera.min_distance {
+        hit.distance = t0;
+    } else {
+        hit.distance = t1;
+    }
+
+    hit.position = ray.origin + ray.direction * hit.distance;
+    hit.normal = normalize(hit.position - hyper_sphere.center);
+    if dot(hit.normal, ray.origin - hit.position) < 0.0 {
+        hit.normal *= -1.0;
+    }
+
+    hit.hit = true;
     return hit;
 }
 
@@ -105,7 +109,7 @@ fn ray_trace(
     closest_hit.distance = camera.max_distance;
     for (var i = 0u; i < hyper_spheres.count; i += 1u) {
         let hit = intersect_hyper_sphere(ray, hyper_spheres.data[i]);
-        if hit.hit && hit.distance >= camera.min_distance && hit.distance <= camera.max_distance && hit.distance < closest_hit.distance {
+        if hit.hit && hit.distance < closest_hit.distance {
             closest_hit = hit;
         }
     }
