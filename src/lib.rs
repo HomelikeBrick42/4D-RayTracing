@@ -10,6 +10,16 @@ mod rotor;
 pub use bivector::*;
 pub use rotor::*;
 
+#[derive(Clone, Copy)]
+struct Camera {
+    pub position: cgmath::Vector4<f32>,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub fov: f32,
+    pub min_distance: f32,
+    pub max_distance: f32,
+}
+
 #[derive(Clone, Copy, ShaderType)]
 struct GpuCamera {
     pub position: cgmath::Vector4<f32>,
@@ -41,8 +51,7 @@ pub struct App {
     texture_id: egui::TextureId,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     texture_bind_group: wgpu::BindGroup,
-    camera: GpuCamera,
-    camera_pitch: f32,
+    camera: Camera,
     camera_uniform_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     hyper_spheres: Vec<GpuHyperSphere>,
@@ -208,16 +217,14 @@ impl App {
             texture_id,
             texture_bind_group_layout,
             texture_bind_group,
-            camera: GpuCamera {
+            camera: Camera {
                 position: cgmath::vec4(0.0, 0.0, -3.0, 0.0),
-                forward: cgmath::vec4(0.0, 0.0, 1.0, 0.0),
-                right: cgmath::vec4(1.0, 0.0, 0.0, 0.0),
-                up: cgmath::vec4(0.0, 1.0, 0.0, 0.0),
+                pitch: 0.0,
+                yaw: 0.0,
                 fov: 90.0f32.to_radians(),
                 min_distance: 0.01,
                 max_distance: 1000.0,
             },
-            camera_pitch: 0.0,
             camera_uniform_buffer,
             camera_bind_group,
             hyper_spheres: vec![GpuHyperSphere {
@@ -240,6 +247,12 @@ impl eframe::App for App {
         let dt = time.duration_since(self.previous_time);
 
         let ts = dt.as_secs_f32();
+
+        let camera_rotation = Rotor4::from_angle_plane(self.camera.yaw, BiVector4::ZX)
+            .rotate_by(Rotor4::from_angle_plane(self.camera.pitch, BiVector4::ZY));
+        let camera_forward = camera_rotation.rotate_vec(cgmath::vec4(0.0, 0.0, 1.0, 0.0));
+        let camera_right = camera_rotation.rotate_vec(cgmath::vec4(1.0, 0.0, 0.0, 0.0));
+        let camera_up = camera_rotation.rotate_vec(cgmath::vec4(0.0, 1.0, 0.0, 0.0));
 
         egui::SidePanel::left("Left Panel").show(ctx, |ui| {
             #[inline(always)]
@@ -284,16 +297,9 @@ impl eframe::App for App {
                 self.camera.max_distance = self.camera.max_distance.max(self.camera.min_distance);
 
                 ui.add_enabled_ui(false, |ui| {
-                    let rotor = Rotor4::from_angle_plane(self.camera_pitch, BiVector4::ZY);
-
-                    let mut camera_copy = self.camera;
-                    camera_copy.forward = rotor.rotate_vec(camera_copy.forward);
-                    camera_copy.right = rotor.rotate_vec(camera_copy.right);
-                    camera_copy.up = rotor.rotate_vec(camera_copy.up);
-
-                    edit_vec4(ui, "Forward: ", &mut camera_copy.forward);
-                    edit_vec4(ui, "Right: ", &mut camera_copy.right);
-                    edit_vec4(ui, "Up: ", &mut camera_copy.up);
+                    edit_vec4(ui, "Forward: ", &mut camera_forward.clone());
+                    edit_vec4(ui, "Right: ", &mut camera_right.clone());
+                    edit_vec4(ui, "Up: ", &mut camera_up.clone());
                 });
             });
             ui.collapsing("Hyper Spheres", |ui| {
@@ -319,39 +325,6 @@ impl eframe::App for App {
             });
             ui.allocate_space(ui.available_size());
         });
-
-        if !ctx.wants_keyboard_input() {
-            ctx.input(|i| {
-                const CAMERA_SPEED: f32 = 3.0;
-                let camera_rotation_speed: f32 = 90.0f32.to_radians();
-
-                if i.key_down(egui::Key::W) {
-                    self.camera.position += self.camera.forward * (CAMERA_SPEED * ts);
-                }
-                if i.key_down(egui::Key::S) {
-                    self.camera.position -= self.camera.forward * (CAMERA_SPEED * ts);
-                }
-                if i.key_down(egui::Key::A) {
-                    self.camera.position -= self.camera.right * (CAMERA_SPEED * ts);
-                }
-                if i.key_down(egui::Key::D) {
-                    self.camera.position += self.camera.right * (CAMERA_SPEED * ts);
-                }
-                if i.key_down(egui::Key::Q) {
-                    self.camera.position -= self.camera.up * (CAMERA_SPEED * ts);
-                }
-                if i.key_down(egui::Key::E) {
-                    self.camera.position += self.camera.up * (CAMERA_SPEED * ts);
-                }
-
-                if i.key_down(egui::Key::ArrowUp) {
-                    self.camera_pitch += camera_rotation_speed * ts;
-                }
-                if i.key_down(egui::Key::ArrowDown) {
-                    self.camera_pitch -= camera_rotation_speed * ts;
-                }
-            });
-        }
 
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(ctx.style().visuals.panel_fill))
@@ -408,16 +381,19 @@ impl eframe::App for App {
 
                 // Upload camera
                 {
-                    let rotor = Rotor4::from_angle_plane(self.camera_pitch, BiVector4::ZY);
-
-                    let mut camera_copy = self.camera;
-                    camera_copy.forward = rotor.rotate_vec(camera_copy.forward);
-                    camera_copy.right = rotor.rotate_vec(camera_copy.right);
-                    camera_copy.up = rotor.rotate_vec(camera_copy.up);
-
                     let mut camera_buffer =
                         UniformBuffer::new([0; <GpuCamera as ShaderSize>::SHADER_SIZE.get() as _]);
-                    camera_buffer.write(&camera_copy).unwrap();
+                    camera_buffer
+                        .write(&GpuCamera {
+                            position: self.camera.position,
+                            forward: camera_forward,
+                            right: camera_right,
+                            up: camera_up,
+                            fov: self.camera.fov,
+                            min_distance: self.camera.min_distance,
+                            max_distance: self.camera.max_distance,
+                        })
+                        .unwrap();
                     let camera_buffer = camera_buffer.into_inner();
 
                     queue.write_buffer(&self.camera_uniform_buffer, 0, &camera_buffer);
@@ -502,6 +478,45 @@ impl eframe::App for App {
                     egui::vec2(self.texture_width as _, self.texture_height as _),
                 );
             });
+
+        if !ctx.wants_keyboard_input() {
+            ctx.input(|i| {
+                const CAMERA_SPEED: f32 = 3.0;
+                let camera_rotation_speed: f32 = 90.0f32.to_radians();
+
+                if i.key_down(egui::Key::W) {
+                    self.camera.position += camera_forward * (CAMERA_SPEED * ts);
+                }
+                if i.key_down(egui::Key::S) {
+                    self.camera.position -= camera_forward * (CAMERA_SPEED * ts);
+                }
+                if i.key_down(egui::Key::A) {
+                    self.camera.position -= camera_right * (CAMERA_SPEED * ts);
+                }
+                if i.key_down(egui::Key::D) {
+                    self.camera.position += camera_right * (CAMERA_SPEED * ts);
+                }
+                if i.key_down(egui::Key::Q) {
+                    self.camera.position -= camera_up * (CAMERA_SPEED * ts);
+                }
+                if i.key_down(egui::Key::E) {
+                    self.camera.position += camera_up * (CAMERA_SPEED * ts);
+                }
+
+                if i.key_down(egui::Key::ArrowUp) {
+                    self.camera.pitch += camera_rotation_speed * ts;
+                }
+                if i.key_down(egui::Key::ArrowDown) {
+                    self.camera.pitch -= camera_rotation_speed * ts;
+                }
+                if i.key_down(egui::Key::ArrowLeft) {
+                    self.camera.yaw -= camera_rotation_speed * ts;
+                }
+                if i.key_down(egui::Key::ArrowRight) {
+                    self.camera.yaw += camera_rotation_speed * ts;
+                }
+            });
+        }
 
         ctx.request_repaint();
         self.previous_time = time;

@@ -61,6 +61,21 @@ impl Rotor4 {
     }
 
     #[rustfmt::skip]
+    pub fn rotate_by(self, r: Self) -> Self {
+        Self {
+            s: self.s * r.s - self.bv.xy * r.bv.xy - self.bv.xz * r.bv.xz - self.bv.xw * r.bv.xw - self.bv.yz * r.bv.yz - self.bv.yw * r.bv.yw - self.bv.zw * r.bv.zw,
+            bv: BiVector4 {
+                xy: self.s * r.bv.xy + self.bv.xy * r.s + self.bv.yz * r.bv.xz - self.bv.xz * r.bv.yz + self.bv.yw * r.bv.xw - self.bv.xw * r.bv.yw,
+                xz: self.s * r.bv.xz + self.bv.xz * r.s + self.bv.xy * r.bv.yz - self.bv.yz * r.bv.xy + self.bv.zw * r.bv.xw - self.bv.xw * r.bv.zw,
+                xw: self.s * r.bv.xw + self.bv.xw * r.s + self.bv.xy * r.bv.yw - self.bv.yw * r.bv.xy + self.bv.xz * r.bv.zw - self.bv.zw * r.bv.xz,
+                yz: self.s * r.bv.yz + self.bv.yz * r.s + self.bv.xz * r.bv.xy - self.bv.xy * r.bv.xz + self.bv.zw * r.bv.yw - self.bv.yw * r.bv.zw,
+                yw: self.s * r.bv.yw + self.bv.yw * r.s + self.bv.xw * r.bv.xy - self.bv.xy * r.bv.xw + self.bv.yz * r.bv.zw - self.bv.zw * r.bv.yz,
+                zw: self.s * r.bv.zw + self.bv.zw * r.s + self.bv.xw * r.bv.xz - self.bv.xz * r.bv.xw + self.bv.yw * r.bv.yz - self.bv.yz * r.bv.yw,
+            }
+        }
+    }
+
+    #[rustfmt::skip]
     pub fn rotate_vec(self, v: cgmath::Vector4<f32>) -> cgmath::Vector4<f32> {
         let x = self.s * v.x + self.bv.xy * v.y + self.bv.xz * v.z + self.bv.xw * v.w;
         let y = self.s * v.y - self.bv.xy * v.x + self.bv.yz * v.z + self.bv.yw * v.w;
