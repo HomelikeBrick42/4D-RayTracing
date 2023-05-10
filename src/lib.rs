@@ -15,6 +15,8 @@ struct Camera {
     pub position: cgmath::Vector4<f32>,
     pub pitch: f32,
     pub yaw: f32,
+    pub weird_pitch: f32,
+    pub weird_yaw: f32,
     pub fov: f32,
     pub min_distance: f32,
     pub max_distance: f32,
@@ -221,6 +223,8 @@ impl App {
                 position: cgmath::vec4(0.0, 0.0, -3.0, 0.0),
                 pitch: 0.0,
                 yaw: 0.0,
+                weird_pitch: 0.0,
+                weird_yaw: 0.0,
                 fov: 90.0f32.to_radians(),
                 min_distance: 0.01,
                 max_distance: 1000.0,
@@ -248,8 +252,13 @@ impl eframe::App for App {
 
         let ts = dt.as_secs_f32();
 
-        let camera_rotation = Rotor4::from_angle_plane(self.camera.yaw, BiVector4::ZX)
-            .rotate_by(Rotor4::from_angle_plane(self.camera.pitch, BiVector4::ZY));
+        #[rustfmt::skip]
+        let camera_rotation = Rotor4::from_angle_plane(self.camera.weird_yaw,   BiVector4::WX)
+                   .rotate_by(Rotor4::from_angle_plane(self.camera.weird_pitch, BiVector4::WY))
+                   .rotate_by(
+                                  Rotor4::from_angle_plane(self.camera.yaw,     BiVector4::ZX)
+                       .rotate_by(Rotor4::from_angle_plane(self.camera.pitch,   BiVector4::ZY)),
+                   );
         let camera_forward = camera_rotation.rotate_vec(cgmath::vec4(0.0, 0.0, 1.0, 0.0));
         let camera_right = camera_rotation.rotate_vec(cgmath::vec4(1.0, 0.0, 0.0, 0.0));
         let camera_up = camera_rotation.rotate_vec(cgmath::vec4(0.0, 1.0, 0.0, 0.0));
@@ -295,6 +304,23 @@ impl eframe::App for App {
 
                 edit_value(ui, "Max Distance: ", &mut self.camera.max_distance);
                 self.camera.max_distance = self.camera.max_distance.max(self.camera.min_distance);
+
+                ui.horizontal(|ui| {
+                    ui.label("Pitch: ");
+                    ui.drag_angle(&mut self.camera.pitch);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Yaw: ");
+                    ui.drag_angle(&mut self.camera.yaw);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("4D Pitch: ");
+                    ui.drag_angle(&mut self.camera.weird_pitch);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("4D Yaw: ");
+                    ui.drag_angle(&mut self.camera.weird_yaw);
+                });
 
                 ui.add_enabled_ui(false, |ui| {
                     edit_vec4(ui, "Forward: ", &mut camera_forward.clone());
@@ -482,7 +508,7 @@ impl eframe::App for App {
         if !ctx.wants_keyboard_input() {
             ctx.input(|i| {
                 const CAMERA_SPEED: f32 = 3.0;
-                let camera_rotation_speed: f32 = 90.0f32.to_radians();
+                let camera_rotation_speed: f32 = 90.0f32.to_radians() * 1.5;
 
                 if i.key_down(egui::Key::W) {
                     self.camera.position += camera_forward * (CAMERA_SPEED * ts);
@@ -503,17 +529,32 @@ impl eframe::App for App {
                     self.camera.position += camera_up * (CAMERA_SPEED * ts);
                 }
 
-                if i.key_down(egui::Key::ArrowUp) {
-                    self.camera.pitch += camera_rotation_speed * ts;
-                }
-                if i.key_down(egui::Key::ArrowDown) {
-                    self.camera.pitch -= camera_rotation_speed * ts;
-                }
-                if i.key_down(egui::Key::ArrowLeft) {
-                    self.camera.yaw -= camera_rotation_speed * ts;
-                }
-                if i.key_down(egui::Key::ArrowRight) {
-                    self.camera.yaw += camera_rotation_speed * ts;
+                if i.modifiers.shift {
+                    if i.key_down(egui::Key::ArrowUp) {
+                        self.camera.weird_pitch += camera_rotation_speed * ts;
+                    }
+                    if i.key_down(egui::Key::ArrowDown) {
+                        self.camera.weird_pitch -= camera_rotation_speed * ts;
+                    }
+                    if i.key_down(egui::Key::ArrowLeft) {
+                        self.camera.weird_yaw -= camera_rotation_speed * ts;
+                    }
+                    if i.key_down(egui::Key::ArrowRight) {
+                        self.camera.weird_yaw += camera_rotation_speed * ts;
+                    }
+                } else {
+                    if i.key_down(egui::Key::ArrowUp) {
+                        self.camera.pitch += camera_rotation_speed * ts;
+                    }
+                    if i.key_down(egui::Key::ArrowDown) {
+                        self.camera.pitch -= camera_rotation_speed * ts;
+                    }
+                    if i.key_down(egui::Key::ArrowLeft) {
+                        self.camera.yaw -= camera_rotation_speed * ts;
+                    }
+                    if i.key_down(egui::Key::ArrowRight) {
+                        self.camera.yaw += camera_rotation_speed * ts;
+                    }
                 }
             });
         }
