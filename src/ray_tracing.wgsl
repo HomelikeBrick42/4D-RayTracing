@@ -30,6 +30,20 @@ struct HyperSpheres {
 @binding(0)
 var<storage, read> hyper_spheres: HyperSpheres;
 
+struct HyperCuboid {
+    center: vec4<f32>,
+    size: vec4<f32>,
+}
+
+struct HyperCuboids {
+    count: u32,
+    data: array<HyperCuboid>,
+}
+
+@group(2)
+@binding(1)
+var<storage, read> hyper_cuboids: HyperCuboids;
+
 struct Ray {
     origin: vec4<f32>,
     direction: vec4<f32>,
@@ -80,6 +94,15 @@ fn intersect_hyper_sphere(ray: Ray, hyper_sphere: HyperSphere) -> Hit {
     return hit;
 }
 
+fn intersect_hyper_cuboid(ray: Ray, hyper_cuboid: HyperCuboid) -> Hit {
+    var hit: Hit;
+    hit.hit = false;
+
+    // TODO: math
+
+    return hit;
+}
+
 @compute
 @workgroup_size(16, 16)
 fn ray_trace(
@@ -107,8 +130,17 @@ fn ray_trace(
     var closest_hit: Hit;
     closest_hit.hit = false;
     closest_hit.distance = camera.max_distance;
+
+    // Check hyper spheres
     for (var i = 0u; i < hyper_spheres.count; i += 1u) {
         let hit = intersect_hyper_sphere(ray, hyper_spheres.data[i]);
+        if hit.hit && hit.distance < closest_hit.distance {
+            closest_hit = hit;
+        }
+    }
+    // Check hyper cuboids
+    for (var i = 0u; i < hyper_cuboids.count; i += 1u) {
+        let hit = intersect_hyper_cuboid(ray, hyper_cuboids.data[i]);
         if hit.hit && hit.distance < closest_hit.distance {
             closest_hit = hit;
         }

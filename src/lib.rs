@@ -46,6 +46,19 @@ struct GpuHyperSpheres<'a> {
     pub data: &'a [GpuHyperSphere],
 }
 
+#[derive(Clone, Copy, ShaderType)]
+struct GpuHyperCuboid {
+    pub center: cgmath::Vector4<f32>,
+    pub size: cgmath::Vector4<f32>,
+}
+
+#[derive(Clone, Copy, ShaderType)]
+struct GpuHyperCuboids<'a> {
+    pub count: ArrayLength,
+    #[size(runtime)]
+    pub data: &'a [GpuHyperCuboid],
+}
+
 pub struct App {
     previous_time: std::time::Instant,
     texture_width: usize,
@@ -60,6 +73,10 @@ pub struct App {
     hyper_sphere_names: Vec<String>,
     hyper_spheres_storage_buffer: wgpu::Buffer,
     hyper_spheres_storage_buffer_size: usize,
+    hyper_cuboids: Vec<GpuHyperCuboid>,
+    hyper_cuboid_names: Vec<String>,
+    hyper_cuboids_storage_buffer: wgpu::Buffer,
+    hyper_cuboids_storage_buffer_size: usize,
     objects_bind_group_layout: wgpu::BindGroupLayout,
     objects_bind_group: wgpu::BindGroup,
     ray_tracing_pipeline: wgpu::ComputePipeline,
@@ -166,32 +183,63 @@ impl App {
             mapped_at_creation: false,
         });
 
+        let hyper_cuboids_storage_buffer_size =
+            <GpuHyperCuboids as ShaderType>::min_size().get() as usize;
+        let hyper_cuboids_storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Hyper Cuboids Storage Buffer"),
+            size: hyper_cuboids_storage_buffer_size as _,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
         let objects_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Objects Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(<GpuHyperSpheres as ShaderType>::min_size()),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(<GpuHyperSpheres as ShaderType>::min_size()),
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(<GpuHyperCuboids as ShaderType>::min_size()),
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let objects_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Objects Bind Group"),
             layout: &objects_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &hyper_spheres_storage_buffer,
-                    offset: 0,
-                    size: None,
-                }),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &hyper_spheres_storage_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &hyper_cuboids_storage_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+            ],
         });
 
         let ray_tracing_pipeline_layout =
@@ -238,6 +286,10 @@ impl App {
             hyper_sphere_names: vec!["Hyper Sphere".into()],
             hyper_spheres_storage_buffer,
             hyper_spheres_storage_buffer_size,
+            hyper_cuboids: vec![],
+            hyper_cuboid_names: vec![],
+            hyper_cuboids_storage_buffer,
+            hyper_cuboids_storage_buffer_size,
             objects_bind_group_layout,
             objects_bind_group,
             ray_tracing_pipeline,
@@ -375,6 +427,43 @@ impl eframe::App for App {
                     self.hyper_sphere_names.remove(i);
                 }
             });
+            ui.collapsing("Hyper Cuboids", |ui| {
+                if ui.button("Add Hyper Cuboid").clicked() {
+                    self.hyper_cuboids.push(GpuHyperCuboid {
+                        center: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
+                        size: cgmath::vec4(1.0, 1.0, 1.0, 1.0),
+                    });
+                    self.hyper_cuboid_names.push("Default Hyper Cuboid".into());
+                }
+
+                let mut to_delete = vec![];
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (i, (hyper_cuboid, name)) in self
+                        .hyper_cuboids
+                        .iter_mut()
+                        .zip(self.hyper_cuboid_names.iter_mut())
+                        .enumerate()
+                    {
+                        egui::CollapsingHeader::new(name.as_str())
+                            .id_source(i)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label("Name: ");
+                                    ui.text_edit_singleline(name);
+                                });
+                                edit_vec4(ui, "Center: ", &mut hyper_cuboid.center);
+                                edit_vec4(ui, "Size: ", &mut hyper_cuboid.size);
+                                if ui.button("Delete").clicked() {
+                                    to_delete.push(i);
+                                }
+                            });
+                    }
+                });
+                for i in to_delete {
+                    self.hyper_cuboids.remove(i);
+                    self.hyper_cuboid_names.remove(i);
+                }
+            });
             ui.allocate_space(ui.available_size());
         });
 
@@ -485,19 +574,63 @@ impl eframe::App for App {
                         }
                     }
 
+                    // Upload hyper cuboids
+                    {
+                        let mut hyper_cuboids_buffer = DynamicStorageBuffer::new(vec![]);
+                        hyper_cuboids_buffer
+                            .write(&GpuHyperCuboids {
+                                count: ArrayLength,
+                                data: &self.hyper_cuboids,
+                            })
+                            .unwrap();
+                        let hyper_cuboids_buffer = hyper_cuboids_buffer.into_inner();
+
+                        if hyper_cuboids_buffer.len() <= self.hyper_cuboids_storage_buffer_size {
+                            queue.write_buffer(
+                                &self.hyper_cuboids_storage_buffer,
+                                0,
+                                &hyper_cuboids_buffer,
+                            );
+                        } else {
+                            self.hyper_cuboids_storage_buffer =
+                                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("Hyper Cuboids Storage Buffer"),
+                                    contents: &hyper_cuboids_buffer,
+                                    usage: wgpu::BufferUsages::COPY_DST
+                                        | wgpu::BufferUsages::STORAGE,
+                                });
+                            self.hyper_cuboids_storage_buffer_size = hyper_cuboids_buffer.len();
+                            bind_group_invalidated = true;
+                        }
+                    }
+
                     if bind_group_invalidated {
                         self.objects_bind_group =
                             device.create_bind_group(&wgpu::BindGroupDescriptor {
                                 label: Some("Objects Bind Group"),
                                 layout: &self.objects_bind_group_layout,
-                                entries: &[wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                        buffer: &self.hyper_spheres_storage_buffer,
-                                        offset: 0,
-                                        size: None,
-                                    }),
-                                }],
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::Buffer(
+                                            wgpu::BufferBinding {
+                                                buffer: &self.hyper_spheres_storage_buffer,
+                                                offset: 0,
+                                                size: None,
+                                            },
+                                        ),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::Buffer(
+                                            wgpu::BufferBinding {
+                                                buffer: &self.hyper_cuboids_storage_buffer,
+                                                offset: 0,
+                                                size: None,
+                                            },
+                                        ),
+                                    },
+                                ],
                             });
                     }
                 }
