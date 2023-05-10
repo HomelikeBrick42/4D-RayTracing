@@ -4,7 +4,13 @@ use eframe::{
 };
 use encase::{ArrayLength, DynamicStorageBuffer, ShaderSize, ShaderType, UniformBuffer};
 
-#[derive(ShaderType)]
+mod bivector;
+mod rotor;
+
+pub use bivector::*;
+pub use rotor::*;
+
+#[derive(Clone, Copy, ShaderType)]
 struct GpuCamera {
     pub position: cgmath::Vector4<f32>,
     pub forward: cgmath::Vector4<f32>,
@@ -15,13 +21,13 @@ struct GpuCamera {
     pub max_distance: f32,
 }
 
-#[derive(ShaderType)]
+#[derive(Clone, Copy, ShaderType)]
 struct GpuHyperSphere {
     pub center: cgmath::Vector4<f32>,
     pub radius: f32,
 }
 
-#[derive(ShaderType)]
+#[derive(Clone, Copy, ShaderType)]
 struct GpuHyperSpheres<'a> {
     pub count: ArrayLength,
     #[size(runtime)]
@@ -36,6 +42,7 @@ pub struct App {
     texture_bind_group_layout: wgpu::BindGroupLayout,
     texture_bind_group: wgpu::BindGroup,
     camera: GpuCamera,
+    camera_pitch: f32,
     camera_uniform_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     hyper_spheres: Vec<GpuHyperSphere>,
@@ -210,6 +217,7 @@ impl App {
                 min_distance: 0.01,
                 max_distance: 1000.0,
             },
+            camera_pitch: 0.0,
             camera_uniform_buffer,
             camera_bind_group,
             hyper_spheres: vec![GpuHyperSphere {
@@ -234,114 +242,58 @@ impl eframe::App for App {
         let ts = dt.as_secs_f32();
 
         egui::SidePanel::left("Left Panel").show(ctx, |ui| {
-            ui.collapsing("Camera", |ui| {
+            #[inline(always)]
+            fn edit_value(
+                ui: &mut egui::Ui,
+                label: impl Into<egui::WidgetText>,
+                value: &mut impl egui::emath::Numeric,
+            ) {
                 ui.horizontal(|ui| {
-                    ui.label("Position: ");
-                    ui.add(
-                        egui::DragValue::new(&mut self.camera.position.x)
-                            .prefix("x: ")
-                            .speed(0.01),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.camera.position.y)
-                            .prefix("y: ")
-                            .speed(0.01),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.camera.position.z)
-                            .prefix("z: ")
-                            .speed(0.01),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.camera.position.w)
-                            .prefix("w: ")
-                            .speed(0.01),
-                    );
+                    ui.label(label);
+                    ui.add(egui::DragValue::new(value).speed(0.01));
                 });
+            }
+
+            #[inline(always)]
+            fn edit_vec4(
+                ui: &mut egui::Ui,
+                label: impl Into<egui::WidgetText>,
+                vec: &mut cgmath::Vector4<impl egui::emath::Numeric>,
+            ) {
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    ui.add(egui::DragValue::new(&mut vec.x).prefix("x: ").speed(0.01));
+                    ui.add(egui::DragValue::new(&mut vec.y).prefix("y: ").speed(0.01));
+                    ui.add(egui::DragValue::new(&mut vec.z).prefix("z: ").speed(0.01));
+                    ui.add(egui::DragValue::new(&mut vec.w).prefix("w: ").speed(0.01));
+                });
+            }
+
+            ui.collapsing("Camera", |ui| {
+                edit_vec4(ui, "Position: ", &mut self.camera.position);
+
                 ui.horizontal(|ui| {
                     ui.label("Fov: ");
                     ui.drag_angle(&mut self.camera.fov);
                 });
-                ui.horizontal(|ui| {
-                    ui.label("Min Distance: ");
-                    ui.add(egui::DragValue::new(&mut self.camera.min_distance).speed(0.01));
-                });
+
+                edit_value(ui, "Min Distance: ", &mut self.camera.min_distance);
                 self.camera.min_distance = self.camera.min_distance.max(0.0);
-                ui.horizontal(|ui| {
-                    ui.label("Max Distance: ");
-                    ui.add(egui::DragValue::new(&mut self.camera.max_distance).speed(0.01));
-                });
+
+                edit_value(ui, "Max Distance: ", &mut self.camera.max_distance);
                 self.camera.max_distance = self.camera.max_distance.max(self.camera.min_distance);
+
                 ui.add_enabled_ui(false, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Forward: ");
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.forward.x)
-                                .prefix("x: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.forward.y)
-                                .prefix("y: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.forward.z)
-                                .prefix("z: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.forward.w)
-                                .prefix("w: ")
-                                .speed(0.01),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Right: ");
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.right.x)
-                                .prefix("x: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.right.y)
-                                .prefix("y: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.right.z)
-                                .prefix("z: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.right.w)
-                                .prefix("w: ")
-                                .speed(0.01),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Up: ");
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.up.x)
-                                .prefix("x: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.up.y)
-                                .prefix("y: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.up.z)
-                                .prefix("z: ")
-                                .speed(0.01),
-                        );
-                        ui.add(
-                            egui::DragValue::new(&mut self.camera.up.w)
-                                .prefix("w: ")
-                                .speed(0.01),
-                        );
-                    });
+                    let rotor = Rotor4::from_angle_plane(self.camera_pitch, BiVector4::ZY);
+
+                    let mut camera_copy = self.camera;
+                    camera_copy.forward = rotor.rotate_vec(camera_copy.forward);
+                    camera_copy.right = rotor.rotate_vec(camera_copy.right);
+                    camera_copy.up = rotor.rotate_vec(camera_copy.up);
+
+                    edit_vec4(ui, "Forward: ", &mut camera_copy.forward);
+                    edit_vec4(ui, "Right: ", &mut camera_copy.right);
+                    edit_vec4(ui, "Up: ", &mut camera_copy.up);
                 });
             });
             ui.collapsing("Hyper Spheres", |ui| {
@@ -359,35 +311,8 @@ impl eframe::App for App {
                                     ui.label("Name: ");
                                     ui.text_edit_singleline(name);
                                 });
-                                ui.horizontal(|ui| {
-                                    ui.label("Position: ");
-                                    ui.add(
-                                        egui::DragValue::new(&mut hyper_sphere.center.x)
-                                            .prefix("x: ")
-                                            .speed(0.01),
-                                    );
-                                    ui.add(
-                                        egui::DragValue::new(&mut hyper_sphere.center.y)
-                                            .prefix("y: ")
-                                            .speed(0.01),
-                                    );
-                                    ui.add(
-                                        egui::DragValue::new(&mut hyper_sphere.center.z)
-                                            .prefix("z: ")
-                                            .speed(0.01),
-                                    );
-                                    ui.add(
-                                        egui::DragValue::new(&mut hyper_sphere.center.w)
-                                            .prefix("w: ")
-                                            .speed(0.01),
-                                    );
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Radius: ");
-                                    ui.add(
-                                        egui::DragValue::new(&mut hyper_sphere.radius).speed(0.01),
-                                    );
-                                });
+                                edit_vec4(ui, "Center: ", &mut hyper_sphere.center);
+                                edit_value(ui, "Radius: ", &mut hyper_sphere.radius);
                             });
                     }
                 });
@@ -398,6 +323,7 @@ impl eframe::App for App {
         if !ctx.wants_keyboard_input() {
             ctx.input(|i| {
                 const CAMERA_SPEED: f32 = 3.0;
+                let camera_rotation_speed: f32 = 90.0f32.to_radians();
 
                 if i.key_down(egui::Key::W) {
                     self.camera.position += self.camera.forward * (CAMERA_SPEED * ts);
@@ -416,6 +342,13 @@ impl eframe::App for App {
                 }
                 if i.key_down(egui::Key::E) {
                     self.camera.position += self.camera.up * (CAMERA_SPEED * ts);
+                }
+
+                if i.key_down(egui::Key::ArrowUp) {
+                    self.camera_pitch += camera_rotation_speed * ts;
+                }
+                if i.key_down(egui::Key::ArrowDown) {
+                    self.camera_pitch -= camera_rotation_speed * ts;
                 }
             });
         }
@@ -475,9 +408,16 @@ impl eframe::App for App {
 
                 // Upload camera
                 {
+                    let rotor = Rotor4::from_angle_plane(self.camera_pitch, BiVector4::ZY);
+
+                    let mut camera_copy = self.camera;
+                    camera_copy.forward = rotor.rotate_vec(camera_copy.forward);
+                    camera_copy.right = rotor.rotate_vec(camera_copy.right);
+                    camera_copy.up = rotor.rotate_vec(camera_copy.up);
+
                     let mut camera_buffer =
                         UniformBuffer::new([0; <GpuCamera as ShaderSize>::SHADER_SIZE.get() as _]);
-                    camera_buffer.write(&self.camera).unwrap();
+                    camera_buffer.write(&camera_copy).unwrap();
                     let camera_buffer = camera_buffer.into_inner();
 
                     queue.write_buffer(&self.camera_uniform_buffer, 0, &camera_buffer);
