@@ -252,13 +252,16 @@ impl eframe::App for App {
 
         let ts = dt.as_secs_f32();
 
-        #[rustfmt::skip]
-        let camera_rotation = Rotor4::from_angle_plane(self.camera.weird_yaw,   BiVector4::WX)
-                   .rotate_by(Rotor4::from_angle_plane(self.camera.weird_pitch, BiVector4::WY))
-                   .rotate_by(
-                                  Rotor4::from_angle_plane(self.camera.yaw,     BiVector4::ZX)
-                       .rotate_by(Rotor4::from_angle_plane(self.camera.pitch,   BiVector4::ZY)),
-                   );
+        let camera_rotation = Rotor4::from_angle_plane(self.camera.yaw, BiVector4::ZX)
+            .rotate_by(Rotor4::from_angle_plane(self.camera.pitch, BiVector4::ZY))
+            .rotate_by(Rotor4::from_angle_plane(
+                self.camera.weird_yaw,
+                BiVector4::WX,
+            ))
+            .rotate_by(Rotor4::from_angle_plane(
+                self.camera.weird_pitch,
+                BiVector4::WZ,
+            ));
         let camera_forward = camera_rotation.rotate_vec(cgmath::vec4(0.0, 0.0, 1.0, 0.0));
         let camera_right = camera_rotation.rotate_vec(cgmath::vec4(1.0, 0.0, 0.0, 0.0));
         let camera_up = camera_rotation.rotate_vec(cgmath::vec4(0.0, 1.0, 0.0, 0.0));
