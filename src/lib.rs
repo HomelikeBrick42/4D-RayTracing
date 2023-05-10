@@ -312,18 +312,25 @@ impl eframe::App for App {
                     ui.label("Pitch: ");
                     ui.drag_angle(&mut self.camera.pitch);
                 });
+                self.camera.pitch %= std::f32::consts::TAU;
+
                 ui.horizontal(|ui| {
                     ui.label("Yaw: ");
                     ui.drag_angle(&mut self.camera.yaw);
                 });
+                self.camera.yaw %= std::f32::consts::TAU;
+
                 ui.horizontal(|ui| {
                     ui.label("4D Pitch: ");
                     ui.drag_angle(&mut self.camera.weird_pitch);
                 });
+                self.camera.weird_pitch %= std::f32::consts::TAU;
+
                 ui.horizontal(|ui| {
                     ui.label("4D Yaw: ");
                     ui.drag_angle(&mut self.camera.weird_yaw);
                 });
+                self.camera.weird_yaw %= std::f32::consts::TAU;
 
                 ui.add_enabled_ui(false, |ui| {
                     edit_vec4(ui, "Forward: ", &mut camera_forward.clone());
@@ -332,6 +339,15 @@ impl eframe::App for App {
                 });
             });
             ui.collapsing("Hyper Spheres", |ui| {
+                if ui.button("Add Hyper Sphere").clicked() {
+                    self.hyper_spheres.push(GpuHyperSphere {
+                        center: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
+                        radius: 1.0,
+                    });
+                    self.hyper_sphere_names.push("Default Hyper Sphere".into());
+                }
+
+                let mut to_delete = vec![];
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (i, (hyper_sphere, name)) in self
                         .hyper_spheres
@@ -348,9 +364,16 @@ impl eframe::App for App {
                                 });
                                 edit_vec4(ui, "Center: ", &mut hyper_sphere.center);
                                 edit_value(ui, "Radius: ", &mut hyper_sphere.radius);
+                                if ui.button("Delete").clicked() {
+                                    to_delete.push(i);
+                                }
                             });
                     }
                 });
+                for i in to_delete {
+                    self.hyper_spheres.remove(i);
+                    self.hyper_sphere_names.remove(i);
+                }
             });
             ui.allocate_space(ui.available_size());
         });
