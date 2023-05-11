@@ -33,20 +33,20 @@ struct HyperSpheres {
 @binding(0)
 var<storage, read> hyper_spheres: HyperSpheres;
 
-struct HyperCuboid {
-    center: vec4<f32>,
-    size: vec4<f32>,
+struct HyperPlane {
+    point: vec4<f32>,
+    normal: vec4<f32>,
     material: u32,
 }
 
-struct HyperCuboids {
+struct HyperPlanes {
     count: u32,
-    data: array<HyperCuboid>,
+    data: array<HyperPlane>,
 }
 
 @group(2)
 @binding(1)
-var<storage, read> hyper_cuboids: HyperCuboids;
+var<storage, read> hyper_planes: HyperPlanes;
 
 struct Material {
     base_color: vec3<f32>,
@@ -115,13 +115,30 @@ fn intersect_hyper_sphere(ray: Ray, hyper_sphere: HyperSphere) -> Hit {
     return hit;
 }
 
-fn intersect_hyper_cuboid(ray: Ray, hyper_cuboid: HyperCuboid) -> Hit {
+fn intersect_hyper_plane(ray: Ray, hyper_plane: HyperPlane) -> Hit {
     var hit: Hit;
     hit.hit = false;
-    hit.material = hyper_cuboid.material;
+    hit.material = hyper_plane.material;
 
-    // TODO: math
+    let d = dot(hyper_plane.normal, ray.direction);
+    if d == 0.0 {
+        return hit;
+    }
 
+    let p = hyper_plane.point - ray.origin;
+    hit.distance = dot(p, hyper_plane.normal) / d;
+
+    if hit.distance < camera.min_distance || camera.max_distance < hit.distance {
+        return hit;
+    }
+
+    hit.position = ray.origin + ray.direction * hit.distance;
+    hit.normal = hyper_plane.normal;
+    if dot(hit.normal, ray.origin - hit.position) < 0.0 {
+        hit.normal *= -1.0;
+    }
+
+    hit.hit = true;
     return hit;
 }
 
@@ -167,9 +184,9 @@ fn get_closest_hit(ray: Ray) -> Hit {
             closest_hit = hit;
         }
     }
-    // Check hyper cuboids
-    for (var i = 0u; i < hyper_cuboids.count; i += 1u) {
-        let hit = intersect_hyper_cuboid(ray, hyper_cuboids.data[i]);
+    // Check hyper plane
+    for (var i = 0u; i < hyper_planes.count; i += 1u) {
+        let hit = intersect_hyper_plane(ray, hyper_planes.data[i]);
         if hit.hit && hit.distance < closest_hit.distance {
             closest_hit = hit;
         }
