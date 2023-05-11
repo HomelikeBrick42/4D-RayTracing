@@ -406,6 +406,9 @@ impl eframe::App for App {
         let camera_up = camera_rotation.rotate_vec(cgmath::vec4(0.0, 1.0, 0.0, 0.0));
 
         egui::SidePanel::left("Left Panel").show(ctx, |ui| {
+            ui.label(format!("FPS: {}", 1.0 / ts));
+            ui.label(format!("Frame Time: {}ms", 1000.0 * ts));
+
             #[inline(always)]
             fn edit_value(
                 ui: &mut egui::Ui,
