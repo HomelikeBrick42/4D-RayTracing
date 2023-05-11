@@ -102,6 +102,7 @@ pub struct App {
     objects_bind_group_layout: wgpu::BindGroupLayout,
     objects_bind_group: wgpu::BindGroup,
     materials: Vec<GpuMaterial>,
+    material_names: Vec<String>,
     materials_storage_buffer: wgpu::Buffer,
     materials_storage_buffer_size: usize,
     materials_bind_group_layout: wgpu::BindGroupLayout,
@@ -338,10 +339,10 @@ impl App {
                 weird_pitch: 0.0,
                 weird_yaw: 0.0,
                 fov: 90.0f32.to_radians(),
-                min_distance: 0.01,
+                min_distance: 0.0001,
                 max_distance: 1000.0,
-                bounce_count: 5,
-                sample_count: 1,
+                bounce_count: 10,
+                sample_count: 10,
             },
             camera_uniform_buffer,
             camera_bind_group,
@@ -375,6 +376,7 @@ impl App {
                     emission_strength: 0.0,
                 },
             ],
+            material_names: vec!["Orange".into(), "Green".into()],
             materials_storage_buffer,
             materials_storage_buffer_size,
             materials_bind_group_layout,
@@ -463,16 +465,25 @@ impl eframe::App for App {
             }
 
             #[inline(always)]
-            fn edit_material(ui: &mut egui::Ui, material: &mut GpuMaterial) {
-                ui.collapsing("Material", |ui| {
-                    edit_color3(ui, "Base Color: ", &mut material.base_color);
-                    edit_color3(ui, "Emissive Color: ", &mut material.emissive_color);
-                    edit_value(
-                        ui,
-                        "Emissive Strength: ",
-                        &mut material.emission_strength,
-                        0.01,
-                    );
+            fn edit_material(
+                ui: &mut egui::Ui,
+                label: impl Into<egui::WidgetText>,
+                material_id: &mut u32,
+                material_names: &[String],
+            ) {
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    egui::ComboBox::from_label("")
+                        .selected_text(
+                            material_names
+                                .get(*material_id as usize)
+                                .map_or("Invalid", |s| s.as_str()),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (id, material_name) in material_names.iter().enumerate() {
+                                ui.selectable_value(material_id, id as _, material_name.as_str());
+                            }
+                        });
                 });
             }
 
@@ -496,6 +507,50 @@ impl eframe::App for App {
                     edit_vec4(ui, "Right: ", &mut camera_right.clone());
                     edit_vec4(ui, "Up: ", &mut camera_up.clone());
                 });
+            });
+            ui.collapsing("Materials", |ui| {
+                if ui.button("Add Material").clicked() {
+                    self.materials.push(GpuMaterial {
+                        base_color: cgmath::vec3(0.9, 0.9, 0.9),
+                        emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
+                        emission_strength: 0.0,
+                    });
+                    self.material_names.push("Default Material".into());
+                }
+
+                let mut to_delete = vec![];
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (i, (material, name)) in self
+                        .materials
+                        .iter_mut()
+                        .zip(self.material_names.iter_mut())
+                        .enumerate()
+                    {
+                        egui::CollapsingHeader::new(name.as_str())
+                            .id_source(i)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label("Name: ");
+                                    ui.text_edit_singleline(name);
+                                });
+                                edit_color3(ui, "Base Color: ", &mut material.base_color);
+                                edit_color3(ui, "Emissive Color: ", &mut material.emissive_color);
+                                edit_value(
+                                    ui,
+                                    "Emissive Strength: ",
+                                    &mut material.emission_strength,
+                                    0.01,
+                                );
+                                if ui.button("Delete").clicked() {
+                                    to_delete.push(i);
+                                }
+                            });
+                    }
+                });
+                for i in to_delete {
+                    self.materials.remove(i);
+                    self.material_names.remove(i);
+                }
             });
             ui.collapsing("Hyper Spheres", |ui| {
                 if ui.button("Add Hyper Sphere").clicked() {
@@ -533,7 +588,9 @@ impl eframe::App for App {
                                 edit_value(ui, "Radius: ", &mut hyper_sphere.radius, 0.01);
                                 edit_material(
                                     ui,
-                                    &mut self.materials[hyper_sphere.material as usize],
+                                    "Material: ",
+                                    &mut hyper_sphere.material,
+                                    &self.material_names,
                                 );
                                 if ui.button("Delete").clicked() {
                                     to_delete.push(i);
@@ -583,7 +640,9 @@ impl eframe::App for App {
                                 hyper_plane.normal = hyper_plane.normal.normalize();
                                 edit_material(
                                     ui,
-                                    &mut self.materials[hyper_plane.material as usize],
+                                    "Material: ",
+                                    &mut hyper_plane.material,
+                                    &self.material_names,
                                 );
                                 if ui.button("Delete").clicked() {
                                     to_delete.push(i);
