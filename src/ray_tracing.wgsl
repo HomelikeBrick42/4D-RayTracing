@@ -187,7 +187,7 @@ fn trace(ray: Ray, state: ptr<function, u32>) -> vec3<f32> {
         if hit.hit {
             let material = materials.data[hit.material];
 
-            ray.origin = hit.position + hit.normal;
+            ray.origin = hit.position;
             ray.direction = random_direction_in_hemisphere(state, hit.normal);
 
             incoming_light += (material.emissive_color * material.emission_strength) * ray_color;
