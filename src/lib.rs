@@ -21,6 +21,7 @@ struct Camera {
     pub min_distance: f32,
     pub max_distance: f32,
     pub bounce_count: u32,
+    pub sample_count: u32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -33,6 +34,7 @@ struct GpuCamera {
     pub min_distance: f32,
     pub max_distance: f32,
     pub bounce_count: u32,
+    pub sample_count: u32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -337,6 +339,7 @@ impl App {
                 min_distance: 0.01,
                 max_distance: 1000.0,
                 bounce_count: 5,
+                sample_count: 1,
             },
             camera_uniform_buffer,
             camera_bind_group,
@@ -395,10 +398,11 @@ impl eframe::App for App {
                 ui: &mut egui::Ui,
                 label: impl Into<egui::WidgetText>,
                 value: &mut impl egui::emath::Numeric,
+                speed: impl Into<f64>,
             ) {
                 ui.horizontal(|ui| {
                     ui.label(label);
-                    ui.add(egui::DragValue::new(value).speed(0.01));
+                    ui.add(egui::DragValue::new(value).speed(speed));
                 });
             }
 
@@ -447,21 +451,30 @@ impl eframe::App for App {
                 ui.collapsing("Material", |ui| {
                     edit_color3(ui, "Base Color: ", &mut material.base_color);
                     edit_color3(ui, "Emissive Color: ", &mut material.emissive_color);
-                    edit_value(ui, "Emissive Strength: ", &mut material.emission_strength);
+                    edit_value(
+                        ui,
+                        "Emissive Strength: ",
+                        &mut material.emission_strength,
+                        0.01,
+                    );
                 });
             }
 
             ui.collapsing("Camera", |ui| {
                 edit_vec4(ui, "Position: ", &mut self.camera.position);
                 edit_angle(ui, "Fov: ", &mut self.camera.fov);
-                edit_value(ui, "Min Distance: ", &mut self.camera.min_distance);
+                edit_value(ui, "Min Distance: ", &mut self.camera.min_distance, 0.01);
                 self.camera.min_distance = self.camera.min_distance.max(0.0);
-                edit_value(ui, "Max Distance: ", &mut self.camera.max_distance);
+                edit_value(ui, "Max Distance: ", &mut self.camera.max_distance, 0.01);
                 self.camera.max_distance = self.camera.max_distance.max(self.camera.min_distance);
                 edit_angle(ui, "Pitch: ", &mut self.camera.pitch);
                 edit_angle(ui, "Yaw: ", &mut self.camera.yaw);
                 edit_angle(ui, "4D Pitch: ", &mut self.camera.weird_pitch);
                 edit_angle(ui, "4D Yaw: ", &mut self.camera.weird_yaw);
+                edit_value(ui, "Max Bounces: ", &mut self.camera.bounce_count, 1);
+                self.camera.bounce_count = self.camera.bounce_count.max(1);
+                edit_value(ui, "Sample Count: ", &mut self.camera.sample_count, 1);
+                self.camera.sample_count = self.camera.sample_count.max(1);
                 ui.add_enabled_ui(false, |ui| {
                     edit_vec4(ui, "Forward: ", &mut camera_forward.clone());
                     edit_vec4(ui, "Right: ", &mut camera_right.clone());
@@ -501,7 +514,7 @@ impl eframe::App for App {
                                     ui.text_edit_singleline(name);
                                 });
                                 edit_vec4(ui, "Center: ", &mut hyper_sphere.center);
-                                edit_value(ui, "Radius: ", &mut hyper_sphere.radius);
+                                edit_value(ui, "Radius: ", &mut hyper_sphere.radius, 0.01);
                                 edit_material(
                                     ui,
                                     &mut self.materials[hyper_sphere.material as usize],
@@ -636,6 +649,7 @@ impl eframe::App for App {
                             min_distance: self.camera.min_distance,
                             max_distance: self.camera.max_distance,
                             bounce_count: self.camera.bounce_count,
+                            sample_count: self.camera.sample_count,
                         })
                         .unwrap();
                     let camera_buffer = camera_buffer.into_inner();

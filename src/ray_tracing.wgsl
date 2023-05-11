@@ -11,6 +11,7 @@ struct Camera {
     min_distance: f32,
     max_distance: f32,
     bounce_count: u32,
+    sample_count: u32,
 }
 
 @group(1)
@@ -187,7 +188,7 @@ fn trace(ray: Ray, state: ptr<function, u32>) -> vec3<f32> {
         if hit.hit {
             let material = materials.data[hit.material];
 
-            ray.origin = hit.position;
+            ray.origin = hit.position + hit.normal * camera.min_distance;
             ray.direction = random_direction_in_hemisphere(state, hit.normal);
 
             incoming_light += (material.emissive_color * material.emission_strength) * ray_color;
@@ -229,6 +230,10 @@ fn ray_trace(
         camera.right * (normalized_uv.x * aspect * theta) + camera.up * (normalized_uv.y * theta) + camera.forward,
     );
 
-    let color = trace(ray, &state);
+    var color = vec3<f32>(0.0);
+    for (var i = 0u; i < camera.sample_count; i += 1u) {
+        color += trace(ray, &state);
+    }
+    color /= f32(camera.sample_count);
     textureStore(output_texture, coords.xy, vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));
 }
