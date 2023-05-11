@@ -242,7 +242,7 @@ fn ray_trace(
 
     var color = vec3<f32>(0.0);
     for (var i = 0u; i < camera.sample_count; i += 1u) {
-        let uv = (vec2<f32>(coords) + vec2<f32>(random_value(&state), random_value(&state))) / vec2<f32>(size);
+        let uv = (vec2<f32>(coords) + vec2<f32>(random_value(&state), random_value(&state)) * 2.0 - 1.0) / vec2<f32>(size);
         let normalized_uv = vec2<f32>(uv.x, 1.0 - uv.y) * 2.0 - 1.0;
 
         var ray: Ray;
