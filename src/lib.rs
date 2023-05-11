@@ -20,6 +20,7 @@ struct Camera {
     pub fov: f32,
     pub min_distance: f32,
     pub max_distance: f32,
+    pub bounce_count: u32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -31,12 +32,14 @@ struct GpuCamera {
     pub fov: f32,
     pub min_distance: f32,
     pub max_distance: f32,
+    pub bounce_count: u32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
 struct GpuHyperSphere {
     pub center: cgmath::Vector4<f32>,
     pub radius: f32,
+    pub material: u32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -50,6 +53,7 @@ struct GpuHyperSpheres<'a> {
 struct GpuHyperCuboid {
     pub center: cgmath::Vector4<f32>,
     pub size: cgmath::Vector4<f32>,
+    pub material: u32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -57,6 +61,20 @@ struct GpuHyperCuboids<'a> {
     pub count: ArrayLength,
     #[size(runtime)]
     pub data: &'a [GpuHyperCuboid],
+}
+
+#[derive(Clone, Copy, ShaderType)]
+struct GpuMaterial {
+    pub base_color: cgmath::Vector3<f32>,
+    pub emissive_color: cgmath::Vector3<f32>,
+    pub emission_strength: f32,
+}
+
+#[derive(Clone, Copy, ShaderType)]
+struct GpuMaterials<'a> {
+    pub count: ArrayLength,
+    #[size(runtime)]
+    pub data: &'a [GpuMaterial],
 }
 
 pub struct App {
@@ -79,6 +97,11 @@ pub struct App {
     hyper_cuboids_storage_buffer_size: usize,
     objects_bind_group_layout: wgpu::BindGroupLayout,
     objects_bind_group: wgpu::BindGroup,
+    materials: Vec<GpuMaterial>,
+    materials_storage_buffer: wgpu::Buffer,
+    materials_storage_buffer_size: usize,
+    materials_bind_group_layout: wgpu::BindGroupLayout,
+    materials_bind_group: wgpu::BindGroup,
     ray_tracing_pipeline: wgpu::ComputePipeline,
 }
 
@@ -242,6 +265,42 @@ impl App {
             ],
         });
 
+        let materials_storage_buffer_size = <GpuMaterials as ShaderType>::min_size().get() as usize;
+        let materials_storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Materials Storage Buffer"),
+            size: materials_storage_buffer_size as _,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
+        let materials_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Materials Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<GpuMaterials as ShaderType>::min_size()),
+                    },
+                    count: None,
+                }],
+            });
+
+        let materials_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Materials Bind Group"),
+            layout: &materials_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &materials_storage_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }],
+        });
+
         let ray_tracing_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Ray Tracing Pipeline Layout"),
@@ -249,6 +308,7 @@ impl App {
                     &texture_bind_group_layout,
                     &camera_bind_group_layout,
                     &objects_bind_group_layout,
+                    &materials_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -276,12 +336,14 @@ impl App {
                 fov: 90.0f32.to_radians(),
                 min_distance: 0.01,
                 max_distance: 1000.0,
+                bounce_count: 5,
             },
             camera_uniform_buffer,
             camera_bind_group,
             hyper_spheres: vec![GpuHyperSphere {
                 center: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
                 radius: 1.0,
+                material: 0,
             }],
             hyper_sphere_names: vec!["Hyper Sphere".into()],
             hyper_spheres_storage_buffer,
@@ -292,6 +354,15 @@ impl App {
             hyper_cuboids_storage_buffer_size,
             objects_bind_group_layout,
             objects_bind_group,
+            materials: vec![GpuMaterial {
+                base_color: cgmath::vec3(0.8, 0.4, 0.1),
+                emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
+                emission_strength: 0.0,
+            }],
+            materials_storage_buffer,
+            materials_storage_buffer_size,
+            materials_bind_group_layout,
+            materials_bind_group,
             ray_tracing_pipeline,
         }
     }
@@ -308,11 +379,11 @@ impl eframe::App for App {
             .rotate_by(Rotor4::from_angle_plane(self.camera.pitch, BiVector4::ZY))
             .rotate_by(Rotor4::from_angle_plane(
                 self.camera.weird_yaw,
-                BiVector4::WX,
+                BiVector4::XW,
             ))
             .rotate_by(Rotor4::from_angle_plane(
                 self.camera.weird_pitch,
-                BiVector4::WZ,
+                BiVector4::ZW,
             ));
         let camera_forward = camera_rotation.rotate_vec(cgmath::vec4(0.0, 0.0, 1.0, 0.0));
         let camera_right = camera_rotation.rotate_vec(cgmath::vec4(1.0, 0.0, 0.0, 0.0));
@@ -346,44 +417,51 @@ impl eframe::App for App {
                 });
             }
 
+            #[inline(always)]
+            fn edit_angle(ui: &mut egui::Ui, label: impl Into<egui::WidgetText>, angle: &mut f32) {
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    ui.drag_angle(angle);
+                });
+                *angle %= std::f32::consts::TAU;
+                *angle += std::f32::consts::TAU;
+                *angle %= std::f32::consts::TAU;
+            }
+
+            #[inline(always)]
+            fn edit_color3(
+                ui: &mut egui::Ui,
+                label: impl Into<egui::WidgetText>,
+                color: &mut cgmath::Vector3<f32>,
+            ) {
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    let mut array = [color.x, color.y, color.z];
+                    egui::color_picker::color_edit_button_rgb(ui, &mut array);
+                    *color = cgmath::vec3(array[0], array[1], array[2]);
+                });
+            }
+
+            #[inline(always)]
+            fn edit_material(ui: &mut egui::Ui, material: &mut GpuMaterial) {
+                ui.collapsing("Material", |ui| {
+                    edit_color3(ui, "Base Color: ", &mut material.base_color);
+                    edit_color3(ui, "Emissive Color: ", &mut material.emissive_color);
+                    edit_value(ui, "Emissive Strength: ", &mut material.emission_strength);
+                });
+            }
+
             ui.collapsing("Camera", |ui| {
                 edit_vec4(ui, "Position: ", &mut self.camera.position);
-
-                ui.horizontal(|ui| {
-                    ui.label("Fov: ");
-                    ui.drag_angle(&mut self.camera.fov);
-                });
-
+                edit_angle(ui, "Fov: ", &mut self.camera.fov);
                 edit_value(ui, "Min Distance: ", &mut self.camera.min_distance);
                 self.camera.min_distance = self.camera.min_distance.max(0.0);
-
                 edit_value(ui, "Max Distance: ", &mut self.camera.max_distance);
                 self.camera.max_distance = self.camera.max_distance.max(self.camera.min_distance);
-
-                ui.horizontal(|ui| {
-                    ui.label("Pitch: ");
-                    ui.drag_angle(&mut self.camera.pitch);
-                });
-                self.camera.pitch %= std::f32::consts::TAU;
-
-                ui.horizontal(|ui| {
-                    ui.label("Yaw: ");
-                    ui.drag_angle(&mut self.camera.yaw);
-                });
-                self.camera.yaw %= std::f32::consts::TAU;
-
-                ui.horizontal(|ui| {
-                    ui.label("4D Pitch: ");
-                    ui.drag_angle(&mut self.camera.weird_pitch);
-                });
-                self.camera.weird_pitch %= std::f32::consts::TAU;
-
-                ui.horizontal(|ui| {
-                    ui.label("4D Yaw: ");
-                    ui.drag_angle(&mut self.camera.weird_yaw);
-                });
-                self.camera.weird_yaw %= std::f32::consts::TAU;
-
+                edit_angle(ui, "Pitch: ", &mut self.camera.pitch);
+                edit_angle(ui, "Yaw: ", &mut self.camera.yaw);
+                edit_angle(ui, "4D Pitch: ", &mut self.camera.weird_pitch);
+                edit_angle(ui, "4D Yaw: ", &mut self.camera.weird_yaw);
                 ui.add_enabled_ui(false, |ui| {
                     edit_vec4(ui, "Forward: ", &mut camera_forward.clone());
                     edit_vec4(ui, "Right: ", &mut camera_right.clone());
@@ -392,9 +470,17 @@ impl eframe::App for App {
             });
             ui.collapsing("Hyper Spheres", |ui| {
                 if ui.button("Add Hyper Sphere").clicked() {
+                    let material = self.materials.len() as u32;
+                    self.materials.push(GpuMaterial {
+                        base_color: cgmath::vec3(0.9, 0.9, 0.9),
+                        emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
+                        emission_strength: 0.0,
+                    });
+
                     self.hyper_spheres.push(GpuHyperSphere {
                         center: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
                         radius: 1.0,
+                        material,
                     });
                     self.hyper_sphere_names.push("Default Hyper Sphere".into());
                 }
@@ -416,6 +502,10 @@ impl eframe::App for App {
                                 });
                                 edit_vec4(ui, "Center: ", &mut hyper_sphere.center);
                                 edit_value(ui, "Radius: ", &mut hyper_sphere.radius);
+                                edit_material(
+                                    ui,
+                                    &mut self.materials[hyper_sphere.material as usize],
+                                );
                                 if ui.button("Delete").clicked() {
                                     to_delete.push(i);
                                 }
@@ -429,9 +519,17 @@ impl eframe::App for App {
             });
             ui.collapsing("Hyper Cuboids", |ui| {
                 if ui.button("Add Hyper Cuboid").clicked() {
+                    let material = self.materials.len() as u32;
+                    self.materials.push(GpuMaterial {
+                        base_color: cgmath::vec3(0.9, 0.9, 0.9),
+                        emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
+                        emission_strength: 0.0,
+                    });
+
                     self.hyper_cuboids.push(GpuHyperCuboid {
                         center: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
                         size: cgmath::vec4(1.0, 1.0, 1.0, 1.0),
+                        material,
                     });
                     self.hyper_cuboid_names.push("Default Hyper Cuboid".into());
                 }
@@ -453,6 +551,10 @@ impl eframe::App for App {
                                 });
                                 edit_vec4(ui, "Center: ", &mut hyper_cuboid.center);
                                 edit_vec4(ui, "Size: ", &mut hyper_cuboid.size);
+                                edit_material(
+                                    ui,
+                                    &mut self.materials[hyper_cuboid.material as usize],
+                                );
                                 if ui.button("Delete").clicked() {
                                     to_delete.push(i);
                                 }
@@ -533,6 +635,7 @@ impl eframe::App for App {
                             fov: self.camera.fov,
                             min_distance: self.camera.min_distance,
                             max_distance: self.camera.max_distance,
+                            bounce_count: self.camera.bounce_count,
                         })
                         .unwrap();
                     let camera_buffer = camera_buffer.into_inner();
@@ -635,6 +738,44 @@ impl eframe::App for App {
                     }
                 }
 
+                // Upload the materials
+                {
+                    let mut materials_buffer = DynamicStorageBuffer::new(vec![]);
+                    materials_buffer
+                        .write(&GpuMaterials {
+                            count: ArrayLength,
+                            data: &self.materials,
+                        })
+                        .unwrap();
+                    let materials_buffer = materials_buffer.into_inner();
+
+                    if materials_buffer.len() <= self.materials_storage_buffer_size {
+                        queue.write_buffer(&self.materials_storage_buffer, 0, &materials_buffer);
+                    } else {
+                        self.materials_storage_buffer =
+                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Materials Storage Buffer"),
+                                contents: &materials_buffer,
+                                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+                            });
+                        self.materials_storage_buffer_size = materials_buffer.len();
+
+                        self.materials_bind_group =
+                            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("Materials Bind Group"),
+                                layout: &self.materials_bind_group_layout,
+                                entries: &[wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                        buffer: &self.materials_storage_buffer,
+                                        offset: 0,
+                                        size: None,
+                                    }),
+                                }],
+                            });
+                    }
+                }
+
                 // do the ray tracing
                 let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Compute Command Encoder"),
@@ -654,6 +795,7 @@ impl eframe::App for App {
                     compute_pass.set_bind_group(0, &self.texture_bind_group, &[]);
                     compute_pass.set_bind_group(1, &self.camera_bind_group, &[]);
                     compute_pass.set_bind_group(2, &self.objects_bind_group, &[]);
+                    compute_pass.set_bind_group(3, &self.materials_bind_group, &[]);
                     compute_pass.dispatch_workgroups(dispatch_width as _, dispatch_height as _, 1);
                 }
                 queue.submit([encoder.finish()]);
