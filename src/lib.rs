@@ -577,6 +577,7 @@ impl eframe::App for App {
                         emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
                         emission_strength: 0.0,
                     });
+                    self.material_names.push("Default Material".into());
 
                     self.hyper_spheres.push(GpuHyperSphere {
                         center: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
@@ -628,6 +629,7 @@ impl eframe::App for App {
                         emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
                         emission_strength: 0.0,
                     });
+                    self.material_names.push("Default Material".into());
 
                     self.hyper_planes.push(GpuHyperPlane {
                         point: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
