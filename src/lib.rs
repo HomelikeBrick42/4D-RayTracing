@@ -36,6 +36,7 @@ struct GpuCamera {
     pub max_distance: f32,
     pub bounce_count: u32,
     pub sample_count: u32,
+    pub seed_offset: u32,
 }
 
 #[derive(Clone, Copy, ShaderType)]
@@ -663,6 +664,7 @@ impl eframe::App for App {
                             max_distance: self.camera.max_distance,
                             bounce_count: self.camera.bounce_count,
                             sample_count: self.camera.sample_count,
+                            seed_offset: rand::random(),
                         })
                         .unwrap();
                     let camera_buffer = camera_buffer.into_inner();

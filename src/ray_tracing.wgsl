@@ -12,6 +12,7 @@ struct Camera {
     max_distance: f32,
     bounce_count: u32,
     sample_count: u32,
+    seed_offset: u32,
 }
 
 @group(1)
@@ -233,7 +234,7 @@ fn ray_trace(
         return;
     }
 
-    var state: u32 = u32(coords.x + coords.y * size.x);
+    var state: u32 = u32(coords.x + coords.y * size.x) + camera.seed_offset;
 
     let uv = vec2<f32>(coords) / vec2<f32>(size);
     let normalized_uv = vec2<f32>(uv.x, 1.0 - uv.y) * 2.0 - 1.0;
