@@ -542,14 +542,31 @@ impl eframe::App for App {
                                     0.01,
                                 );
                                 if ui.button("Delete").clicked() {
-                                    to_delete.push(i);
+                                    to_delete.push(i as u32);
                                 }
                             });
                     }
                 });
-                for i in to_delete {
-                    self.materials.remove(i);
-                    self.material_names.remove(i);
+                // TODO: show some kind of message when failing to delete the material, or maybe not even show the button if something is using the material
+                for id in to_delete {
+                    if self
+                        .hyper_spheres
+                        .iter()
+                        .any(|hyper_sphere| hyper_sphere.material == id)
+                    {
+                        continue;
+                    }
+
+                    if self
+                        .hyper_planes
+                        .iter()
+                        .any(|hyper_plane| hyper_plane.material == id)
+                    {
+                        continue;
+                    }
+
+                    self.materials.remove(id as usize);
+                    self.material_names.remove(id as usize);
                 }
             });
             ui.collapsing("Hyper Spheres", |ui| {
