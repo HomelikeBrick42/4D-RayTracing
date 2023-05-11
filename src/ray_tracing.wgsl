@@ -236,20 +236,21 @@ fn ray_trace(
 
     var state: u32 = u32(coords.x + coords.y * size.x) + camera.seed_offset;
 
-    let uv = vec2<f32>(coords) / vec2<f32>(size);
-    let normalized_uv = vec2<f32>(uv.x, 1.0 - uv.y) * 2.0 - 1.0;
     let aspect = f32(size.x) / f32(size.y);
 
     let theta = tan(camera.fov / 2.0);
 
-    var ray: Ray;
-    ray.origin = camera.position;
-    ray.direction = normalize(
-        camera.right * (normalized_uv.x * aspect * theta) + camera.up * (normalized_uv.y * theta) + camera.forward,
-    );
-
     var color = vec3<f32>(0.0);
     for (var i = 0u; i < camera.sample_count; i += 1u) {
+        let uv = (vec2<f32>(coords) + vec2<f32>(random_value(&state), random_value(&state))) / vec2<f32>(size);
+        let normalized_uv = vec2<f32>(uv.x, 1.0 - uv.y) * 2.0 - 1.0;
+
+        var ray: Ray;
+        ray.origin = camera.position;
+        ray.direction = normalize(
+            camera.right * (normalized_uv.x * aspect * theta) + camera.up * (normalized_uv.y * theta) + camera.forward,
+        );
+
         color += trace(ray, &state);
     }
     color /= f32(camera.sample_count);
