@@ -408,118 +408,127 @@ impl eframe::App for App {
         let camera_up = camera_rotation.rotate_vec(cgmath::vec4(0.0, 1.0, 0.0, 0.0));
 
         egui::SidePanel::left("Left Panel").show(ctx, |ui| {
-            ui.label(format!("FPS: {}", 1.0 / ts));
-            ui.label(format!("Frame Time: {}ms", 1000.0 * ts));
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.label(format!("FPS: {}", 1.0 / ts));
+                ui.label(format!("Frame Time: {}ms", 1000.0 * ts));
 
-            #[inline(always)]
-            fn edit_value(
-                ui: &mut egui::Ui,
-                label: impl Into<egui::WidgetText>,
-                value: &mut impl egui::emath::Numeric,
-                speed: impl Into<f64>,
-            ) {
-                ui.horizontal(|ui| {
-                    ui.label(label);
-                    ui.add(egui::DragValue::new(value).speed(speed));
-                });
-            }
-
-            #[inline(always)]
-            fn edit_vec4(
-                ui: &mut egui::Ui,
-                label: impl Into<egui::WidgetText>,
-                vec: &mut cgmath::Vector4<impl egui::emath::Numeric>,
-            ) {
-                ui.horizontal(|ui| {
-                    ui.label(label);
-                    ui.add(egui::DragValue::new(&mut vec.x).prefix("x: ").speed(0.01));
-                    ui.add(egui::DragValue::new(&mut vec.y).prefix("y: ").speed(0.01));
-                    ui.add(egui::DragValue::new(&mut vec.z).prefix("z: ").speed(0.01));
-                    ui.add(egui::DragValue::new(&mut vec.w).prefix("w: ").speed(0.01));
-                });
-            }
-
-            #[inline(always)]
-            fn edit_angle(ui: &mut egui::Ui, label: impl Into<egui::WidgetText>, angle: &mut f32) {
-                ui.horizontal(|ui| {
-                    ui.label(label);
-                    ui.drag_angle(angle);
-                });
-                *angle %= std::f32::consts::TAU;
-                *angle += std::f32::consts::TAU;
-                *angle %= std::f32::consts::TAU;
-            }
-
-            #[inline(always)]
-            fn edit_color3(
-                ui: &mut egui::Ui,
-                label: impl Into<egui::WidgetText>,
-                color: &mut cgmath::Vector3<f32>,
-            ) {
-                ui.horizontal(|ui| {
-                    ui.label(label);
-                    let mut array = [color.x, color.y, color.z];
-                    egui::color_picker::color_edit_button_rgb(ui, &mut array);
-                    *color = cgmath::vec3(array[0], array[1], array[2]);
-                });
-            }
-
-            #[inline(always)]
-            fn edit_material(
-                ui: &mut egui::Ui,
-                label: impl Into<egui::WidgetText>,
-                material_id: &mut u32,
-                material_names: &[String],
-            ) {
-                ui.horizontal(|ui| {
-                    ui.label(label);
-                    egui::ComboBox::from_label("")
-                        .selected_text(
-                            material_names
-                                .get(*material_id as usize)
-                                .map_or("Invalid", |s| s.as_str()),
-                        )
-                        .show_ui(ui, |ui| {
-                            for (id, material_name) in material_names.iter().enumerate() {
-                                ui.selectable_value(material_id, id as _, material_name.as_str());
-                            }
-                        });
-                });
-            }
-
-            ui.collapsing("Camera", |ui| {
-                edit_vec4(ui, "Position: ", &mut self.camera.position);
-                edit_angle(ui, "Fov: ", &mut self.camera.fov);
-                edit_value(ui, "Min Distance: ", &mut self.camera.min_distance, 0.01);
-                self.camera.min_distance = self.camera.min_distance.max(0.0);
-                edit_value(ui, "Max Distance: ", &mut self.camera.max_distance, 0.01);
-                self.camera.max_distance = self.camera.max_distance.max(self.camera.min_distance);
-                edit_angle(ui, "Pitch: ", &mut self.camera.pitch);
-                edit_angle(ui, "Yaw: ", &mut self.camera.yaw);
-                edit_angle(ui, "4D Pitch: ", &mut self.camera.weird_pitch);
-                edit_angle(ui, "4D Yaw: ", &mut self.camera.weird_yaw);
-                edit_value(ui, "Max Bounces: ", &mut self.camera.bounce_count, 1);
-                self.camera.bounce_count = self.camera.bounce_count.max(1);
-                edit_value(ui, "Sample Count: ", &mut self.camera.sample_count, 1);
-                self.camera.sample_count = self.camera.sample_count.max(1);
-                ui.add_enabled_ui(false, |ui| {
-                    edit_vec4(ui, "Forward: ", &mut camera_forward.clone());
-                    edit_vec4(ui, "Right: ", &mut camera_right.clone());
-                    edit_vec4(ui, "Up: ", &mut camera_up.clone());
-                });
-            });
-            ui.collapsing("Materials", |ui| {
-                if ui.button("Add Material").clicked() {
-                    self.materials.push(GpuMaterial {
-                        base_color: cgmath::vec3(0.9, 0.9, 0.9),
-                        emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
-                        emission_strength: 0.0,
+                #[inline(always)]
+                fn edit_value(
+                    ui: &mut egui::Ui,
+                    label: impl Into<egui::WidgetText>,
+                    value: &mut impl egui::emath::Numeric,
+                    speed: impl Into<f64>,
+                ) {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        ui.add(egui::DragValue::new(value).speed(speed));
                     });
-                    self.material_names.push("Default Material".into());
                 }
 
-                let mut to_delete = vec![];
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                #[inline(always)]
+                fn edit_vec4(
+                    ui: &mut egui::Ui,
+                    label: impl Into<egui::WidgetText>,
+                    vec: &mut cgmath::Vector4<impl egui::emath::Numeric>,
+                ) {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        ui.add(egui::DragValue::new(&mut vec.x).prefix("x: ").speed(0.01));
+                        ui.add(egui::DragValue::new(&mut vec.y).prefix("y: ").speed(0.01));
+                        ui.add(egui::DragValue::new(&mut vec.z).prefix("z: ").speed(0.01));
+                        ui.add(egui::DragValue::new(&mut vec.w).prefix("w: ").speed(0.01));
+                    });
+                }
+
+                #[inline(always)]
+                fn edit_angle(
+                    ui: &mut egui::Ui,
+                    label: impl Into<egui::WidgetText>,
+                    angle: &mut f32,
+                ) {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        ui.drag_angle(angle);
+                    });
+                    *angle %= std::f32::consts::TAU;
+                    *angle += std::f32::consts::TAU;
+                    *angle %= std::f32::consts::TAU;
+                }
+
+                #[inline(always)]
+                fn edit_color3(
+                    ui: &mut egui::Ui,
+                    label: impl Into<egui::WidgetText>,
+                    color: &mut cgmath::Vector3<f32>,
+                ) {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut array = [color.x, color.y, color.z];
+                        egui::color_picker::color_edit_button_rgb(ui, &mut array);
+                        *color = cgmath::vec3(array[0], array[1], array[2]);
+                    });
+                }
+
+                #[inline(always)]
+                fn edit_material(
+                    ui: &mut egui::Ui,
+                    label: impl Into<egui::WidgetText>,
+                    material_id: &mut u32,
+                    material_names: &[String],
+                ) {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        egui::ComboBox::from_label("")
+                            .selected_text(
+                                material_names
+                                    .get(*material_id as usize)
+                                    .map_or("Invalid", |s| s.as_str()),
+                            )
+                            .show_ui(ui, |ui| {
+                                for (id, material_name) in material_names.iter().enumerate() {
+                                    ui.selectable_value(
+                                        material_id,
+                                        id as _,
+                                        material_name.as_str(),
+                                    );
+                                }
+                            });
+                    });
+                }
+
+                ui.collapsing("Camera", |ui| {
+                    edit_vec4(ui, "Position: ", &mut self.camera.position);
+                    edit_angle(ui, "Fov: ", &mut self.camera.fov);
+                    edit_value(ui, "Min Distance: ", &mut self.camera.min_distance, 0.01);
+                    self.camera.min_distance = self.camera.min_distance.max(0.0);
+                    edit_value(ui, "Max Distance: ", &mut self.camera.max_distance, 0.01);
+                    self.camera.max_distance =
+                        self.camera.max_distance.max(self.camera.min_distance);
+                    edit_angle(ui, "Pitch: ", &mut self.camera.pitch);
+                    edit_angle(ui, "Yaw: ", &mut self.camera.yaw);
+                    edit_angle(ui, "4D Pitch: ", &mut self.camera.weird_pitch);
+                    edit_angle(ui, "4D Yaw: ", &mut self.camera.weird_yaw);
+                    edit_value(ui, "Max Bounces: ", &mut self.camera.bounce_count, 1);
+                    self.camera.bounce_count = self.camera.bounce_count.max(1);
+                    edit_value(ui, "Sample Count: ", &mut self.camera.sample_count, 1);
+                    self.camera.sample_count = self.camera.sample_count.max(1);
+                    ui.add_enabled_ui(false, |ui| {
+                        edit_vec4(ui, "Forward: ", &mut camera_forward.clone());
+                        edit_vec4(ui, "Right: ", &mut camera_right.clone());
+                        edit_vec4(ui, "Up: ", &mut camera_up.clone());
+                    });
+                });
+                ui.collapsing("Materials", |ui| {
+                    if ui.button("Add Material").clicked() {
+                        self.materials.push(GpuMaterial {
+                            base_color: cgmath::vec3(0.9, 0.9, 0.9),
+                            emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
+                            emission_strength: 0.0,
+                        });
+                        self.material_names.push("Default Material".into());
+                    }
+
+                    let mut to_delete = vec![];
                     for (i, (material, name)) in self
                         .materials
                         .iter_mut()
@@ -546,49 +555,47 @@ impl eframe::App for App {
                                 }
                             });
                     }
+                    // TODO: show some kind of message when failing to delete the material, or maybe not even show the button if something is using the material
+                    for id in to_delete {
+                        if self
+                            .hyper_spheres
+                            .iter()
+                            .any(|hyper_sphere| hyper_sphere.material == id)
+                        {
+                            continue;
+                        }
+
+                        if self
+                            .hyper_planes
+                            .iter()
+                            .any(|hyper_plane| hyper_plane.material == id)
+                        {
+                            continue;
+                        }
+
+                        self.materials.remove(id as usize);
+                        self.material_names.remove(id as usize);
+                    }
                 });
-                // TODO: show some kind of message when failing to delete the material, or maybe not even show the button if something is using the material
-                for id in to_delete {
-                    if self
-                        .hyper_spheres
-                        .iter()
-                        .any(|hyper_sphere| hyper_sphere.material == id)
-                    {
-                        continue;
+                ui.collapsing("Hyper Spheres", |ui| {
+                    if ui.button("Add Hyper Sphere").clicked() {
+                        let material = self.materials.len() as u32;
+                        self.materials.push(GpuMaterial {
+                            base_color: cgmath::vec3(0.9, 0.9, 0.9),
+                            emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
+                            emission_strength: 0.0,
+                        });
+                        self.material_names.push("Default Material".into());
+
+                        self.hyper_spheres.push(GpuHyperSphere {
+                            center: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
+                            radius: 1.0,
+                            material,
+                        });
+                        self.hyper_sphere_names.push("Default Hyper Sphere".into());
                     }
 
-                    if self
-                        .hyper_planes
-                        .iter()
-                        .any(|hyper_plane| hyper_plane.material == id)
-                    {
-                        continue;
-                    }
-
-                    self.materials.remove(id as usize);
-                    self.material_names.remove(id as usize);
-                }
-            });
-            ui.collapsing("Hyper Spheres", |ui| {
-                if ui.button("Add Hyper Sphere").clicked() {
-                    let material = self.materials.len() as u32;
-                    self.materials.push(GpuMaterial {
-                        base_color: cgmath::vec3(0.9, 0.9, 0.9),
-                        emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
-                        emission_strength: 0.0,
-                    });
-                    self.material_names.push("Default Material".into());
-
-                    self.hyper_spheres.push(GpuHyperSphere {
-                        center: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
-                        radius: 1.0,
-                        material,
-                    });
-                    self.hyper_sphere_names.push("Default Hyper Sphere".into());
-                }
-
-                let mut to_delete = vec![];
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let mut to_delete = vec![];
                     for (i, (hyper_sphere, name)) in self
                         .hyper_spheres
                         .iter_mut()
@@ -615,32 +622,30 @@ impl eframe::App for App {
                                 }
                             });
                     }
+                    for i in to_delete {
+                        self.hyper_spheres.remove(i);
+                        self.hyper_sphere_names.remove(i);
+                    }
                 });
-                for i in to_delete {
-                    self.hyper_spheres.remove(i);
-                    self.hyper_sphere_names.remove(i);
-                }
-            });
-            ui.collapsing("Hyper Planes", |ui| {
-                if ui.button("Add Hyper Plane").clicked() {
-                    let material = self.materials.len() as u32;
-                    self.materials.push(GpuMaterial {
-                        base_color: cgmath::vec3(0.9, 0.9, 0.9),
-                        emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
-                        emission_strength: 0.0,
-                    });
-                    self.material_names.push("Default Material".into());
+                ui.collapsing("Hyper Planes", |ui| {
+                    if ui.button("Add Hyper Plane").clicked() {
+                        let material = self.materials.len() as u32;
+                        self.materials.push(GpuMaterial {
+                            base_color: cgmath::vec3(0.9, 0.9, 0.9),
+                            emissive_color: cgmath::vec3(0.0, 0.0, 0.0),
+                            emission_strength: 0.0,
+                        });
+                        self.material_names.push("Default Material".into());
 
-                    self.hyper_planes.push(GpuHyperPlane {
-                        point: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
-                        normal: cgmath::vec4(0.0, 1.0, 0.0, 0.0),
-                        material,
-                    });
-                    self.hyper_plane_names.push("Default Hyper Plane".into());
-                }
+                        self.hyper_planes.push(GpuHyperPlane {
+                            point: cgmath::vec4(0.0, 0.0, 0.0, 0.0),
+                            normal: cgmath::vec4(0.0, 1.0, 0.0, 0.0),
+                            material,
+                        });
+                        self.hyper_plane_names.push("Default Hyper Plane".into());
+                    }
 
-                let mut to_delete = vec![];
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let mut to_delete = vec![];
                     for (i, (hyper_plane, name)) in self
                         .hyper_planes
                         .iter_mut()
@@ -668,13 +673,13 @@ impl eframe::App for App {
                                 }
                             });
                     }
+                    for i in to_delete {
+                        self.hyper_planes.remove(i);
+                        self.hyper_plane_names.remove(i);
+                    }
                 });
-                for i in to_delete {
-                    self.hyper_planes.remove(i);
-                    self.hyper_plane_names.remove(i);
-                }
+                ui.allocate_space(ui.available_size());
             });
-            ui.allocate_space(ui.available_size());
         });
 
         egui::CentralPanel::default()
